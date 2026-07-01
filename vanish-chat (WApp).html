@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vanish ❤ — chat that doesn't stay</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<style>
+  :root{
+    --ink:#3b1f2b;
+    --paper:#fdf1f3;
+    --paper-dim:#ffe3ea;
+    --line:#f3c7d1;
+    --ember:#d6336c;
+    --ember-dim:#f6c9d6;
+    --moss:#c2185b;
+    --leaf:#3f9142;
+    --amber:#e0507a;
+    --gold:#d68a3c;
+    --header:#8f1d3f;
+    --header-dark:#6e1531;
+    --bubble-mine:#ffd7e3;
+    --bubble-theirs:#ffffff;
+    --mono: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --serif: 'Segoe UI', -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:radial-gradient(circle at 20% 15%, #ffe0e8 0%, #fff6f4 45%, #ffeef1 100%);
+    color:var(--ink);
+    font-family:var(--mono);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
+
+  .app{
+    width:100%;
+    max-width:560px;
+    height:min(720px, 92vh);
+    background:var(--paper);
+    border:1px solid var(--ember-dim);
+    border-radius:18px;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+    box-shadow:0 10px 0 var(--ember-dim), 0 18px 40px -12px rgba(214,51,108,0.35);
+  }
+
+  .titlebar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 20px;
+    background:linear-gradient(180deg, var(--header), var(--header-dark));
+    box-shadow:0 2px 6px rgba(0,0,0,0.15);
+  }
+  .titlebar .titles{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  .titlebar h1{
+    font-family:var(--serif);
+    font-size:18px;
+    font-weight:600;
+    margin:0;
+    letter-spacing:0.2px;
+    color:#fff;
+  }
+  .titlebar h1 em{
+    font-style:normal;
+    color:#ffe1ea;
+  }
+  .titlebar h1 .heart{
+    color:#ff8fae;
+    font-style:normal;
+    display:inline-block;
+    animation:heartbeat 1.8s infinite ease-in-out;
+  }
+  @keyframes heartbeat{
+    0%,100%{ transform:scale(1); }
+    15%{ transform:scale(1.22); }
+    30%{ transform:scale(1); }
+    45%{ transform:scale(1.15); }
+    60%{ transform:scale(1); }
+  }
+  .status{
+    font-size:11.5px;
+    letter-spacing:0.02em;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    color:rgba(255,255,255,0.82);
+  }
+  .status .dot{
+    width:7px;height:7px;border-radius:50%;
+    background:rgba(255,255,255,0.5);
+  }
+  .status.connecting .dot{background:#ffe08a; animation:pulse 1s infinite ease-in-out;}
+  .status.online .dot{background:#7ee08a;}
+  .status.offline .dot{background:#ff8a8a;}
+  @keyframes pulse{
+    0%,100%{opacity:1;}
+    50%{opacity:0.25;}
+  }
+
+  .roomrow{
+    padding:10px 20px;
+    font-size:11px;
+    letter-spacing:0.04em;
+    color:#6b6558;
+    border-bottom:1px dashed var(--line);
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .roomrow code{
+    background:var(--paper-dim);
+    border:1px solid var(--line);
+    padding:2px 6px;
+    color:var(--ink);
+    font-size:11px;
+  }
+  .roomrow button{
+    border-radius:20px;
+    font-family:var(--mono);
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    background:none;
+    border:1px solid var(--line);
+    color:#6b6558;
+    padding:3px 8px;
+    cursor:pointer;
+  }
+  .roomrow button:hover{border-color:var(--ember); color:var(--ink);}
+
+  .setup{
+    padding:16px 20px;
+    border-bottom:1px solid var(--ember-dim);
+    display:flex;
+    gap:10px;
+    background:var(--paper-dim);
+  }
+  .setup input{
+    border-radius:10px;
+    flex:1;
+    font-family:var(--mono);
+    font-size:13px;
+    padding:9px 10px;
+    border:1px solid var(--ember-dim);
+    background:var(--paper);
+    color:var(--ink);
+    min-width:0;
+  }
+  .setup input:focus{outline:2px solid var(--ember); outline-offset:1px;}
+  .setup button{
+    border-radius:10px;
+    font-family:var(--mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.1em;
+    background:var(--ink);
+    color:var(--paper);
+    border:1px solid var(--ember-dim);
+    padding:0 16px;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .setup button:hover{background:var(--ember); border-color:var(--ember);}
+  .setup button:disabled{background:var(--line); border-color:var(--line); cursor:not-allowed;}
+
+  .thread{
+    flex:1;
+    overflow-y:auto;
+    padding:18px 20px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    background-color:#fbe4ea;
+    background-image:
+      radial-gradient(rgba(214,51,108,0.07) 2px, transparent 2px),
+      radial-gradient(rgba(214,51,108,0.05) 2px, transparent 2px);
+    background-size:56px 56px, 56px 56px;
+    background-position:0 0, 28px 28px;
+  }
+  .thread::-webkit-scrollbar{width:8px;}
+  .thread::-webkit-scrollbar-thumb{background:var(--line);}
+
+  .empty{
+    margin:auto;
+    text-align:center;
+    color:#8a8375;
+    font-size:12px;
+    line-height:1.7;
+    max-width:320px;
+  }
+  .empty .glyph{
+    font-size:28px;
+    display:block;
+    margin-bottom:10px;
+    color:var(--ember-dim);
+  }
+
+  .msg{
+    border-radius:16px;
+    max-width:78%;
+    padding:8px 11px;
+    font-size:14px;
+    line-height:1.45;
+    border:none;
+    box-shadow:0 1px 1px rgba(0,0,0,0.08);
+    position:relative;
+    animation:rise 0.22s ease-out;
+    word-wrap:break-word;
+  }
+  @keyframes rise{
+    from{opacity:0; transform:translateY(6px);}
+    to{opacity:1; transform:translateY(0);}
+  }
+  .msg .meta{
+    display:block;
+    font-size:10px;
+    letter-spacing:0.03em;
+    text-transform:none;
+    font-weight:600;
+    margin-bottom:2px;
+    opacity:0.55;
+  }
+  .msg.mine{
+    border-bottom-right-radius:4px;
+    align-self:flex-end;
+    background:var(--bubble-mine);
+    color:var(--ink);
+    border-color:var(--ember);
+  }
+  .msg.theirs{
+    border-bottom-left-radius:4px;
+    align-self:flex-start;
+    background:var(--bubble-theirs);
+    color:var(--ink);
+    border-color:var(--ember);
+  }
+  .msg.system{
+    border-radius:20px;
+    align-self:center;
+    background:rgba(255,255,255,0.75);
+    border:none;
+    box-shadow:0 1px 1px rgba(0,0,0,0.06);
+    color:#8a5a68;
+    font-size:11px;
+    text-transform:none;
+    letter-spacing:0.02em;
+    padding:5px 12px;
+  }
+
+  .composer{
+    background:var(--paper-dim);
+    border-top:1px solid var(--ember-dim);
+    padding:10px 14px 14px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .composer input{
+    border-radius:24px;
+    flex:1;
+    font-family:var(--mono);
+    font-size:14.5px;
+    padding:11px 16px;
+    border:1px solid var(--ember-dim);
+    background:#fff;
+    color:var(--ink);
+    min-width:0;
+  }
+  .composer input:focus{outline:none; border-color:var(--ember);}
+  .composer input:disabled{opacity:0.5;}
+  .composer button{
+    border-radius:50%;
+    width:42px;
+    height:42px;
+    flex:0 0 auto;
+    font-size:17px;
+    line-height:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:var(--ember);
+    color:#fff;
+    border:none;
+    padding:0;
+    cursor:pointer;
+  }
+  .composer button:hover{background:#b8285d;}
+  .composer button:disabled{
+    background:var(--line);
+    color:#fff;
+    border-color:var(--line);
+    cursor:not-allowed;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .msg, .status .dot{animation:none;}
+  }
+
+  /* ---- Call feature ---- */
+  .callbar{
+    padding:9px 20px;
+    border-bottom:1px solid var(--ember-dim);
+    background:var(--paper-dim);
+    display:flex;
+    align-items:center;
+    gap:12px;
+    font-size:11px;
+  }
+  .callbar label{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    color:#6b6558;
+    cursor:pointer;
+  }
+  .callbar button{
+    border-radius:20px;
+    font-family:var(--mono);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    background:var(--moss);
+    color:var(--paper);
+    border:1px solid var(--moss);
+    padding:6px 14px;
+    cursor:pointer;
+  }
+  .callbar button:hover{filter:brightness(1.1);}
+  .callbar button:disabled{background:var(--line); border-color:var(--line); color:#a39d8f; cursor:not-allowed;}
+
+  .call-overlay{
+    position:absolute;
+    inset:0;
+    background:rgba(28,27,25,0.94);
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    color:var(--paper);
+    z-index:20;
+    padding:24px;
+    text-align:center;
+  }
+  .call-overlay.show{display:flex;}
+  .call-overlay .who{
+    font-family:var(--serif);
+    font-size:24px;
+  }
+  .call-overlay .sub{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.14em;
+    color:var(--ember-dim);
+  }
+  .call-overlay .ring{
+    width:64px; height:64px;
+    border-radius:50%;
+    border:2px solid var(--ember);
+    display:flex; align-items:center; justify-content:center;
+    font-size:26px;
+    animation:ringpulse 1.3s infinite ease-in-out;
+  }
+  @keyframes ringpulse{
+    0%,100%{ transform:scale(1); opacity:1; }
+    50%{ transform:scale(1.12); opacity:0.6; }
+  }
+  .call-overlay .actions{
+    display:flex; gap:14px; margin-top:6px;
+  }
+  .call-overlay button{
+    border-radius:22px;
+    font-family:var(--mono);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.1em;
+    padding:10px 20px;
+    border:1px solid var(--paper);
+    background:transparent;
+    color:var(--paper);
+    cursor:pointer;
+  }
+  .call-overlay button.accept{background:var(--leaf); border-color:var(--leaf);}
+  .call-overlay button.decline{background:var(--ember); border-color:var(--ember);}
+  .call-overlay button:hover{filter:brightness(1.15);}
+
+  .in-call-bar{
+    border-radius:0;
+    display:none;
+    align-items:center;
+    gap:10px;
+    padding:10px 20px;
+    border-bottom:1px solid var(--ember-dim);
+    background:#20261f;
+    color:var(--paper);
+    font-size:11px;
+    letter-spacing:0.04em;
+  }
+  .in-call-bar.show{display:flex;}
+  .in-call-bar .with{flex:1; text-transform:uppercase; letter-spacing:0.1em;}
+  .in-call-bar button{
+    border-radius:16px;
+    font-family:var(--mono);
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    padding:5px 10px;
+    border:1px solid var(--paper);
+    background:transparent;
+    color:var(--paper);
+    cursor:pointer;
+  }
+  .in-call-bar button.active{background:var(--paper); color:var(--ink);}
+  .in-call-bar button.end{background:var(--ember); border-color:var(--ember); color:var(--paper);}
+  .in-call-bar button:hover{filter:brightness(1.15);}
+
+  .video-strip{
+    display:none;
+    gap:8px;
+    padding:10px 20px;
+    border-bottom:1px solid var(--ember-dim);
+    background:#111;
+  }
+  .video-strip.show{display:flex;}
+  .video-strip video{
+    width:50%;
+    max-height:160px;
+    background:#000;
+    border:1px solid var(--line);
+    border-radius:12px;
+    object-fit:cover;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="titlebar">
+    <div class="titles">
+      <h1><span class="heart">&#10084;</span> Vanish<em>.</em></h1>
+      <div class="status" id="statusEl"><span class="dot"></span><span id="statusText">offline</span></div>
+    </div>
+  </div>
+
+  <div class="roomrow">
+    <span>room:</span>
+    <input id="roomCodeInput" type="text" maxlength="24" style="width:110px; font-family:var(--mono); font-size:11px; padding:3px 6px; border:1px solid var(--line); border-radius:10px; background:var(--paper);">
+    <button id="applyRoomBtn" type="button">use this room</button>
+    <button id="copyLinkBtn" type="button">copy code</button>
+    <button id="newRoomBtn" type="button">random room</button>
+    <span style="margin-left:auto; color:var(--ember);">refresh &rarr; history gone</span>
+  </div>
+
+  <div class="setup">
+    <input id="nameInput" type="text" placeholder="pick a name to join…" maxlength="24" autocomplete="off">
+    <button id="joinBtn">Join</button>
+  </div>
+
+  <div class="callbar">
+    <label><input type="checkbox" id="videoToggle"> video</label>
+    <button id="callBtn" disabled>Call room</button>
+    <span style="margin-left:auto; color:#6b6558;">calls are 1:1 · peer-to-peer</span>
+  </div>
+
+  <div class="in-call-bar" id="inCallBar">
+    <span class="with" id="inCallWith">In call</span>
+    <button id="muteBtn" type="button">mute</button>
+    <button id="camBtn" type="button">camera</button>
+    <button id="endCallBtn" type="button" class="end">end call</button>
+  </div>
+
+  <div class="video-strip" id="videoStrip">
+    <video id="localVideo" autoplay playsinline muted></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+  <audio id="remoteAudio" autoplay></audio>
+
+  <div class="thread" id="thread">
+    <div class="empty" id="emptyState">
+      <span class="glyph">&#10084;</span>
+      Nothing here yet.<br>
+      Pick a name and hit Join. Share the room code above with anyone — they type it in and hit "use this room" to land in this same live chat. Nothing is saved; refresh and it's gone.
+    </div>
+  </div>
+
+  <div class="composer">
+    <input id="msgInput" type="text" placeholder="join first…" maxlength="500" disabled autocomplete="off">
+    <button id="sendBtn" disabled>&#10148;</button>
+  </div>
+
+  <div class="call-overlay" id="callOverlay">
+    <div class="ring" id="callRingIcon">&#128222;</div>
+    <div class="who" id="callOverlayWho">Calling…</div>
+    <div class="sub" id="callOverlaySub">waiting for answer</div>
+    <div class="actions" id="callOverlayActions"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---- Room setup ----
+  // Note: this deliberately avoids touching window.location / history.
+  // In sandboxed preview contexts (e.g. an iframe loaded via srcdoc, with no
+  // real URL) browsers block history.pushState/replaceState with a
+  // SecurityError. A plain room-code field works identically everywhere:
+  // in preview, downloaded-and-opened, or hosted on a real domain.
+  function randomRoom(){
+    return Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+  }
+  let roomCode = randomRoom();
+  const roomCodeInput = document.getElementById('roomCodeInput');
+  roomCodeInput.value = roomCode;
+
+  document.getElementById('applyRoomBtn').addEventListener('click', () => {
+    const next = roomCodeInput.value.trim();
+    if (!next) { roomCodeInput.focus(); return; }
+    if (next === roomCode){
+      appendMsg({text: 'already in room ' + roomCode, kind:'system'});
+      return;
+    }
+    switchRoom(next);
+  });
+  roomCodeInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter'){
+      const next = roomCodeInput.value.trim();
+      if (next && next !== roomCode) switchRoom(next);
+    }
+  });
+
+  document.getElementById('copyLinkBtn').addEventListener('click', () => {
+    // Copies the room code itself. If this file ends up hosted at a real
+    // URL, you can turn this into a ?room= link manually — but the code
+    // alone is enough for anyone to join: they just type it in and hit
+    // "use this room".
+    const text = roomCode;
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(() => flashCopied());
+    } else {
+      prompt('Copy this room code and share it:', text);
+    }
+  });
+  function flashCopied(){
+    const btn = document.getElementById('copyLinkBtn');
+    const old = btn.textContent;
+    btn.textContent = 'copied!';
+    setTimeout(() => btn.textContent = old, 1200);
+  }
+  document.getElementById('newRoomBtn').addEventListener('click', () => {
+    switchRoom(randomRoom());
+  });
+
+  // ---- Everything below lives only in memory for this tab's lifetime. ----
+  // No localStorage / sessionStorage / cookies — reload = clean slate.
+  // Transport: public MQTT-over-WebSocket broker acts as the internet relay,
+  // so any device, on any network, can join this exact room via the link above.
+
+  let me = null;
+  const clientId = 'vanish_' + Math.random().toString(16).slice(2, 10);
+  let topic = 'vanish-chat/room/' + roomCode;
+
+  const nameInput = document.getElementById('nameInput');
+  const joinBtn = document.getElementById('joinBtn');
+  const msgInput = document.getElementById('msgInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const thread = document.getElementById('thread');
+  const emptyState = document.getElementById('emptyState');
+  const statusEl = document.getElementById('statusEl');
+  const statusText = document.getElementById('statusText');
+
+  const callBtn = document.getElementById('callBtn');
+  const videoToggle = document.getElementById('videoToggle');
+  const callOverlay = document.getElementById('callOverlay');
+  const callOverlayWho = document.getElementById('callOverlayWho');
+  const callOverlaySub = document.getElementById('callOverlaySub');
+  const callOverlayActions = document.getElementById('callOverlayActions');
+  const inCallBar = document.getElementById('inCallBar');
+  const inCallWith = document.getElementById('inCallWith');
+  const muteBtn = document.getElementById('muteBtn');
+  const camBtn = document.getElementById('camBtn');
+  const endCallBtn = document.getElementById('endCallBtn');
+  const videoStrip = document.getElementById('videoStrip');
+  const localVideo = document.getElementById('localVideo');
+  const remoteVideo = document.getElementById('remoteVideo');
+  const remoteAudio = document.getElementById('remoteAudio');
+
+  function setStatus(state, label){
+    statusEl.className = 'status ' + state;
+    statusText.textContent = label;
+  }
+
+  function clearEmpty(){
+    if (emptyState && emptyState.parentNode) emptyState.remove();
+  }
+
+  function appendMsg({from, text, kind}){
+    clearEmpty();
+    const el = document.createElement('div');
+    el.className = 'msg ' + kind;
+    if (kind !== 'system'){
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = from + ' · ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      el.appendChild(meta);
+    }
+    const body = document.createElement('span');
+    body.textContent = text;
+    el.appendChild(body);
+    thread.appendChild(el);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  // ---- Connect to the public broker ----
+  setStatus('connecting', 'connecting…');
+  joinBtn.disabled = true;
+
+  let client = null;
+  try {
+    client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+      clientId,
+      clean: true,
+      reconnectPeriod: 2000,
+      connectTimeout: 15000,
+    });
+  } catch (e){
+    setStatus('offline', 'blocked in preview — open the downloaded file');
+  }
+
+  if (client){
+    client.on('connect', () => {
+      setStatus('online', 'live · room ' + roomCode);
+      joinBtn.disabled = false;
+      client.subscribe(topic, { qos: 0 });
+    });
+
+    client.on('reconnect', () => setStatus('connecting', 'reconnecting…'));
+    client.on('close', () => setStatus('offline', 'offline'));
+    client.on('error', () => setStatus('offline', 'blocked in preview — open the downloaded file'));
+
+    client.on('message', (recvTopic, payload) => {
+      if (recvTopic !== topic) return;
+      let data;
+      try { data = JSON.parse(payload.toString()); } catch(e){ return; }
+      if (!data || data.clientId === clientId) return; // ignore my own echo
+      if (data.type === 'join'){
+        appendMsg({text: data.from + ' joined the room', kind:'system'});
+      } else if (data.type === 'leave'){
+        appendMsg({text: data.from + ' left the room', kind:'system'});
+      } else if (data.type === 'msg'){
+        appendMsg({from: data.from, text: data.text, kind:'theirs'});
+      } else if (data.type === 'call-offer'){
+        handleIncomingOffer(data);
+      } else if (data.type === 'call-answer' && data.target === clientId){
+        handleAnswer(data);
+      } else if (data.type === 'call-decline' && data.target === clientId){
+        handleDecline(data);
+      } else if (data.type === 'call-cancel'){
+        handleCancel(data);
+      } else if (data.type === 'call-taken'){
+        handleTaken(data);
+      } else if (data.type === 'call-end' && data.target === clientId){
+        handleRemoteEnd(data);
+      }
+    });
+  }
+
+  function publish(obj){
+    if (client && client.connected){
+      client.publish(topic, JSON.stringify(obj), { qos: 0 });
+    }
+  }
+
+  function switchRoom(newCode){
+    hangUp(true);
+    if (me && client && client.connected) publish({type:'leave', from: me, clientId});
+    if (client && client.connected) client.unsubscribe(topic);
+    roomCode = newCode;
+    roomCodeInput.value = roomCode;
+    topic = 'vanish-chat/room/' + roomCode;
+    if (client && client.connected){
+      client.subscribe(topic, { qos: 0 });
+      setStatus('online', 'live · room ' + roomCode);
+    }
+
+    // reset UI state for the new room
+    me = null;
+    nameInput.disabled = false;
+    nameInput.value = '';
+    joinBtn.disabled = !(client && client.connected);
+    joinBtn.textContent = 'Join';
+    msgInput.disabled = true;
+    msgInput.placeholder = 'join first…';
+    sendBtn.disabled = true;
+    callBtn.disabled = true;
+    thread.innerHTML = '';
+    thread.appendChild(emptyState);
+    appendMsg({text: 'switched to room ' + roomCode, kind:'system'});
+    nameInput.focus();
+  }
+
+  function join(){
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); return; }
+    me = name;
+    nameInput.disabled = true;
+    joinBtn.disabled = true;
+    joinBtn.textContent = 'Joined';
+    msgInput.disabled = false;
+    msgInput.placeholder = 'type a message…';
+    msgInput.focus();
+    sendBtn.disabled = false;
+    callBtn.disabled = false;
+    appendMsg({text: 'you joined as ' + me, kind:'system'});
+    publish({type:'join', from: me, clientId});
+  }
+
+  function send(){
+    const text = msgInput.value.trim();
+    if (!text || !me) return;
+    appendMsg({from: me, text, kind:'mine'});
+    publish({type:'msg', from: me, text, clientId});
+    msgInput.value = '';
+    msgInput.focus();
+  }
+
+  // ================= Call feature (WebRTC, signaled over the same MQTT room) =================
+  // Uses "non-trickle" ICE: we wait for ICE gathering to finish and send the
+  // complete SDP (candidates included) in one shot. Slightly slower to connect
+  // than trickle ICE, but needs no extra signaling message types beyond
+  // offer/answer, which keeps this simple on a plain pub/sub relay.
+  const RTC_CONFIG = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] }] };
+
+  let pc = null;
+  let localStream = null;
+  let callState = 'idle'; // idle | calling | incoming | in-call
+  let remotePeerId = null;
+  let remotePeerName = null;
+  let pendingOffer = null;
+  let callTimer = null;
+  let micOn = true;
+  let camOn = false;
+
+  function showOverlay(){ callOverlay.classList.add('show'); }
+  function hideOverlay(){ callOverlay.classList.remove('show'); callOverlayActions.innerHTML = ''; }
+
+  async function waitIceGatheringComplete(peerConn){
+    if (peerConn.iceGatheringState === 'complete') return;
+    await new Promise(resolve => {
+      const to = setTimeout(resolve, 4000); // safety timeout, don't hang forever
+      peerConn.addEventListener('icegatheringstatechange', function check(){
+        if (peerConn.iceGatheringState === 'complete'){
+          clearTimeout(to);
+          peerConn.removeEventListener('icegatheringstatechange', check);
+          resolve();
+        }
+      });
+    });
+  }
+
+  function createPeerConnection(){
+    const conn = new RTCPeerConnection(RTC_CONFIG);
+    conn.ontrack = (e) => {
+      const stream = e.streams[0];
+      if (e.track.kind === 'video'){
+        remoteVideo.srcObject = stream;
+        videoStrip.classList.add('show');
+      } else {
+        remoteAudio.srcObject = stream;
+      }
+    };
+    conn.onconnectionstatechange = () => {
+      if (['failed','disconnected','closed'].includes(conn.connectionState) && callState === 'in-call'){
+        appendMsg({text:'call connection lost', kind:'system'});
+        hangUp(true);
+      }
+    };
+    return conn;
+  }
+
+  async function getMedia(withVideo){
+    const constraints = { audio: true, video: withVideo ? { width: 320, height: 240 } : false };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    return stream;
+  }
+
+  function resetCallUI(){
+    callState = 'idle';
+    remotePeerId = null;
+    remotePeerName = null;
+    pendingOffer = null;
+    if (callTimer) { clearTimeout(callTimer); callTimer = null; }
+    hideOverlay();
+    inCallBar.classList.remove('show');
+    videoStrip.classList.remove('show');
+    localVideo.srcObject = null;
+    remoteVideo.srcObject = null;
+    remoteAudio.srcObject = null;
+    callBtn.disabled = !me;
+    callBtn.textContent = 'Call room';
+  }
+
+  function hangUp(silent){
+    if (pc){ try { pc.close(); } catch(e){} pc = null; }
+    if (localStream){ localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    if (!silent && remotePeerId){
+      publish({type:'call-end', clientId, target: remotePeerId});
+    }
+    resetCallUI();
+  }
+
+  async function startCall(){
+    if (!me || callState !== 'idle') return;
+    try {
+      callState = 'calling';
+      callBtn.disabled = true;
+      const withVideo = videoToggle.checked;
+      camOn = withVideo;
+      localStream = await getMedia(withVideo);
+      if (withVideo){ localVideo.srcObject = localStream; videoStrip.classList.add('show'); }
+      pc = createPeerConnection();
+      localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitIceGatheringComplete(pc);
+
+      publish({ type:'call-offer', clientId, from: me, video: withVideo, sdp: pc.localDescription });
+
+      callOverlayWho.textContent = 'Calling…';
+      callOverlaySub.textContent = 'waiting for someone to pick up';
+      callOverlayActions.innerHTML = '';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.className = 'decline';
+      cancelBtn.onclick = () => {
+        publish({type:'call-cancel', clientId});
+        hangUp(true);
+      };
+      callOverlayActions.appendChild(cancelBtn);
+      showOverlay();
+
+      callTimer = setTimeout(() => {
+        if (callState === 'calling'){
+          appendMsg({text:'no one picked up', kind:'system'});
+          publish({type:'call-cancel', clientId});
+          hangUp(true);
+        }
+      }, 30000);
+    } catch (err){
+      appendMsg({text:'could not start call: ' + (err && err.message ? err.message : 'mic/camera unavailable'), kind:'system'});
+      hangUp(true);
+    }
+  }
+
+  function handleIncomingOffer(data){
+    if (callState !== 'idle'){
+      // busy — politely decline without bothering the user
+      publish({type:'call-decline', clientId, target: data.clientId, from: me || 'someone'});
+      return;
+    }
+    callState = 'incoming';
+    pendingOffer = data;
+    callOverlayWho.textContent = data.from + ' is calling' + (data.video ? ' (video)' : '');
+    callOverlaySub.textContent = 'incoming call';
+    callOverlayActions.innerHTML = '';
+
+    const acceptBtn = document.createElement('button');
+    acceptBtn.textContent = 'Accept';
+    acceptBtn.className = 'accept';
+    acceptBtn.onclick = acceptCall;
+
+    const declineBtn = document.createElement('button');
+    declineBtn.textContent = 'Decline';
+    declineBtn.className = 'decline';
+    declineBtn.onclick = declineCall;
+
+    callOverlayActions.appendChild(acceptBtn);
+    callOverlayActions.appendChild(declineBtn);
+    showOverlay();
+  }
+
+  async function acceptCall(){
+    if (!pendingOffer || !me) return;
+    const offerData = pendingOffer;
+    try {
+      const wantVideo = !!offerData.video;
+      localStream = wantVideo
+        ? await getMedia(true).catch(() => getMedia(false))
+        : await getMedia(false);
+      camOn = localStream.getVideoTracks().length > 0;
+      if (localStream.getVideoTracks().length){ localVideo.srcObject = localStream; videoStrip.classList.add('show'); }
+
+      pc = createPeerConnection();
+      localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+      await pc.setRemoteDescription(offerData.sdp);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await waitIceGatheringComplete(pc);
+
+      publish({ type:'call-answer', clientId, from: me, target: offerData.clientId, sdp: pc.localDescription });
+      publish({ type:'call-taken', callerId: offerData.clientId });
+
+      remotePeerId = offerData.clientId;
+      remotePeerName = offerData.from;
+      callState = 'in-call';
+      hideOverlay();
+      inCallWith.textContent = 'in call with ' + remotePeerName;
+      inCallBar.classList.add('show');
+      appendMsg({text:'call connected with ' + remotePeerName, kind:'system'});
+      pendingOffer = null;
+    } catch (err){
+      appendMsg({text:'could not join call: ' + (err && err.message ? err.message : 'mic/camera unavailable'), kind:'system'});
+      publish({type:'call-decline', clientId, target: offerData.clientId, from: me});
+      hangUp(true);
+    }
+  }
+
+  function declineCall(){
+    if (pendingOffer){
+      publish({type:'call-decline', clientId, target: pendingOffer.clientId, from: me || 'someone'});
+    }
+    resetCallUI();
+  }
+
+  function handleAnswer(data){
+    if (callState !== 'calling' || !pc) return;
+    if (callTimer) { clearTimeout(callTimer); callTimer = null; }
+    pc.setRemoteDescription(data.sdp).then(() => {
+      remotePeerId = data.clientId;
+      remotePeerName = data.from;
+      callState = 'in-call';
+      hideOverlay();
+      inCallWith.textContent = 'in call with ' + remotePeerName;
+      inCallBar.classList.add('show');
+      appendMsg({text:'call connected with ' + remotePeerName, kind:'system'});
+    }).catch(() => {
+      appendMsg({text:'call failed to connect', kind:'system'});
+      hangUp(true);
+    });
+  }
+
+  function handleDecline(data){
+    if (callState === 'calling'){
+      appendMsg({text: (data.from || 'they') + ' declined the call', kind:'system'});
+      hangUp(true);
+    }
+  }
+
+  function handleCancel(data){
+    if (callState === 'incoming' && pendingOffer && pendingOffer.clientId === data.clientId){
+      appendMsg({text:'call was cancelled', kind:'system'});
+      resetCallUI();
+    }
+  }
+
+  function handleTaken(data){
+    if (callState === 'incoming' && pendingOffer && pendingOffer.clientId === data.callerId){
+      resetCallUI(); // someone else in the room picked up first
+    }
+  }
+
+  function handleRemoteEnd(data){
+    if (callState === 'in-call' && remotePeerId === data.clientId){
+      appendMsg({text: (remotePeerName || 'the other person') + ' ended the call', kind:'system'});
+      hangUp(true);
+    }
+  }
+
+  callBtn.addEventListener('click', startCall);
+  endCallBtn.addEventListener('click', () => hangUp(false));
+
+  muteBtn.addEventListener('click', () => {
+    if (!localStream) return;
+    micOn = !micOn;
+    localStream.getAudioTracks().forEach(t => t.enabled = micOn);
+    muteBtn.textContent = micOn ? 'mute' : 'unmute';
+    muteBtn.classList.toggle('active', !micOn);
+  });
+
+  camBtn.addEventListener('click', async () => {
+    if (!localStream || !pc) return;
+    if (camOn){
+      localStream.getVideoTracks().forEach(t => { t.stop(); localStream.removeTrack(t); });
+      camOn = false;
+      camBtn.classList.remove('active');
+    } else {
+      try {
+        const camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } });
+        const track = camStream.getVideoTracks()[0];
+        localStream.addTrack(track);
+        pc.addTrack(track, localStream);
+        localVideo.srcObject = localStream;
+        videoStrip.classList.add('show');
+        camOn = true;
+        camBtn.classList.add('active');
+      } catch (err){
+        appendMsg({text:'camera unavailable', kind:'system'});
+      }
+    }
+  });
+  // ============================================================================================
+
+  joinBtn.addEventListener('click', join);
+  nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+  sendBtn.addEventListener('click', send);
+  msgInput.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+  window.addEventListener('beforeunload', () => {
+    if (remotePeerId) publish({type:'call-end', clientId, target: remotePeerId});
+    if (me) publish({type:'leave', from: me, clientId});
+  });
+})();
+</script>
+
+</body>
+</html>
